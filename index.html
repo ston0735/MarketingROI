@@ -1,0 +1,389 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>行銷 AI 效益試算</title>
+  <meta name="description" content="拉 bar 模擬 AI 導入後，行銷與內容設計團隊能精簡多少支出" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    html, body { margin: 0; background: #0b0d12; color-scheme: dark; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", sans-serif; }
+    #root:empty::before { content: "載入中…"; display: block; padding: 24px; color: #94a3b8; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel" data-presets="react">
+    const { createContext, useContext, useEffect, useMemo, useState } = React;
+
+    /* ---------------- 主題（夜間 / 日間） ---------------- */
+    const THEMES = {
+      dark: {
+        bgHex: "#0b0d12", fgHex: "#f1f5f9", scheme: "dark",
+        card: "border-[#232838] bg-[#12151d]",
+        inner: "border-[#1f2431] bg-[#0f1219]",
+        muted: "text-slate-400", faint: "text-slate-500", label: "text-slate-300",
+        divider: "border-[#232838]", track: "bg-[#1c2130]",
+        accent: "accent-indigo-400", bar: "bg-indigo-400",
+        good: "text-emerald-400", bad: "text-rose-400",
+        btnOn: "border-indigo-400 bg-indigo-500/20 text-indigo-200",
+        btnOff: "border-[#232838] bg-[#12151d] text-slate-300 hover:border-slate-500",
+        subtotal: "border-[#232838] bg-[#0b0d12]",
+      },
+      light: {
+        bgHex: "#f8fafc", fgHex: "#0f172a", scheme: "light",
+        card: "border-slate-200 bg-white",
+        inner: "border-slate-200 bg-slate-50",
+        muted: "text-slate-500", faint: "text-slate-400", label: "text-slate-700",
+        divider: "border-slate-200", track: "bg-slate-200",
+        accent: "accent-indigo-600", bar: "bg-indigo-500",
+        good: "text-emerald-600", bad: "text-rose-600",
+        btnOn: "border-indigo-600 bg-indigo-600 text-white",
+        btnOff: "border-slate-200 bg-white text-slate-700 hover:border-slate-400",
+        subtotal: "border-slate-200 bg-slate-50",
+      },
+    };
+    const ThemeCtx = createContext(THEMES.dark);
+    const useTheme = () => useContext(ThemeCtx);
+
+    /* ---------------- 預設值 ---------------- */
+    const HOURS_PER_MONTH = 176; // 22 天 × 8 小時
+
+    const ROLE_INFO = {
+      copy: { name: "文案 / 內容企劃", hint: "社群貼文、EDM、產品文案、SEO 文章" },
+      design: { name: "平面 / 視覺設計", hint: "Banner、社群圖、尺寸延伸、簡報" },
+      social: { name: "社群 / 廣告投放", hint: "排程、回覆、素材 A/B、成效報表" },
+      video: { name: "影音剪輯", hint: "短影音、字幕、腳本、多版本輸出" },
+    };
+    const mkRole = (key, headcount, cost, repetitive, aiSaving) =>
+      ({ key, ...ROLE_INFO[key], headcount, cost, repetitive, aiSaving });
+
+    const PRESETS = {
+      small: {
+        label: "小型團隊",
+        roles: [mkRole("copy", 1, 2200, 50, 50), mkRole("design", 1, 2500, 45, 40), mkRole("social", 1, 2200, 40, 40), mkRole("video", 0, 2600, 40, 35)],
+        outsource: 1500, outsourceReplace: 40, assets: 300, assetsReplace: 50, review: 20, aiFee: 300, setup: 2000,
+      },
+      medium: {
+        label: "中型團隊",
+        roles: [mkRole("copy", 3, 2500, 50, 50), mkRole("design", 3, 2800, 45, 40), mkRole("social", 2, 2500, 40, 40), mkRole("video", 1, 3000, 40, 35)],
+        outsource: 4000, outsourceReplace: 35, assets: 800, assetsReplace: 50, review: 20, aiFee: 1000, setup: 6000,
+      },
+      large: {
+        label: "大型團隊",
+        roles: [mkRole("copy", 8, 3000, 50, 50), mkRole("design", 8, 3300, 45, 40), mkRole("social", 5, 3000, 40, 40), mkRole("video", 3, 3500, 40, 35)],
+        outsource: 12000, outsourceReplace: 30, assets: 2500, assetsReplace: 45, review: 25, aiFee: 3500, setup: 20000,
+      },
+    };
+
+    const formatMoney = (v) =>
+      (v < 0 ? "-US$" : "US$") + Math.round(Math.abs(v)).toLocaleString("en-US");
+
+    /* ---------------- 小元件 ---------------- */
+    function Slider({ label, value, min, max, step, display, onChange, hint }) {
+      const t = useTheme();
+      return (
+        <div>
+          <div className="mb-2 flex items-baseline justify-between gap-4 text-sm">
+            <span className={t.label}>
+              {label}
+              {hint && <span className={`ml-2 text-xs ${t.faint}`}>{hint}</span>}
+            </span>
+            <span className="shrink-0 font-semibold tabular-nums">{display}</span>
+          </div>
+          <input type="range" min={min} max={max} step={step} value={value}
+            onChange={(e) => onChange(Number(e.target.value))}
+            className={`w-full cursor-pointer ${t.accent}`} />
+        </div>
+      );
+    }
+
+    function Subtotal({ rows }) {
+      const t = useTheme();
+      return (
+        <div className={`mt-4 rounded-lg border px-4 py-3 text-sm ${t.subtotal}`}>
+          {rows.map((r, i) => (
+            <div key={r.label}
+              className={`flex justify-between gap-4 ${i > 0 ? `mt-2 border-t pt-2 ${t.divider}` : ""}`}>
+              <span className={t.muted}>{r.label}</span>
+              <span className={`font-semibold tabular-nums ${r.tone === "good" ? t.good : r.tone === "bad" ? t.bad : ""}`}>
+                {r.value}
+              </span>
+            </div>
+          ))}
+        </div>
+      );
+    }
+
+    function Card({ title, total, children }) {
+      const t = useTheme();
+      return (
+        <div className={`rounded-xl border p-5 ${t.card}`}>
+          <div className="mb-5 flex flex-wrap items-baseline justify-between gap-2">
+            <h2 className="font-semibold">{title}</h2>
+            {total && (
+              <span className={`text-sm ${t.muted}`}>
+                分類支出小計 <b className="ml-1 tabular-nums" style={{ color: t.fgHex }}>{total}</b>
+              </span>
+            )}
+          </div>
+          {children}
+        </div>
+      );
+    }
+
+    function Stat({ label, value, tone = "default", sub }) {
+      const t = useTheme();
+      const color = tone === "good" ? t.good : tone === "bad" ? t.bad : "";
+      return (
+        <div>
+          <p className={`mb-1 text-sm ${t.muted}`}>{label}</p>
+          <p className={`text-2xl font-bold tabular-nums sm:text-3xl ${color}`}>{value}</p>
+          {sub && <p className={`mt-1 text-xs ${t.faint}`}>{sub}</p>}
+        </div>
+      );
+    }
+
+    /* ---------------- 主元件 ---------------- */
+    function MarketingROI() {
+      const [mode, setMode] = useState(() => {
+        try { return localStorage.getItem("roi-theme") || "dark"; } catch { return "dark"; }
+      });
+      const t = THEMES[mode];
+
+      useEffect(() => {
+        [document.documentElement, document.body].forEach((el) => {
+          el.style.backgroundColor = t.bgHex;
+          el.style.color = t.fgHex;
+          el.style.colorScheme = t.scheme;
+        });
+        try { localStorage.setItem("roi-theme", mode); } catch {}
+      }, [mode]);
+
+      const [preset, setPreset] = useState("medium");
+      const p = PRESETS[preset];
+      const [roles, setRoles] = useState(p.roles);
+      const [outsource, setOutsource] = useState(p.outsource);
+      const [outsourceReplace, setOutsourceReplace] = useState(p.outsourceReplace);
+      const [assets, setAssets] = useState(p.assets);
+      const [assetsReplace, setAssetsReplace] = useState(p.assetsReplace);
+      const [review, setReview] = useState(p.review);
+      const [aiFee, setAiFee] = useState(p.aiFee);
+      const [setup, setSetup] = useState(p.setup);
+
+      const applyPreset = (key) => {
+        const n = PRESETS[key];
+        setPreset(key);
+        setRoles(n.roles.map((r) => ({ ...r })));
+        setOutsource(n.outsource); setOutsourceReplace(n.outsourceReplace);
+        setAssets(n.assets); setAssetsReplace(n.assetsReplace);
+        setReview(n.review); setAiFee(n.aiFee); setSetup(n.setup);
+      };
+
+      const updateRole = (key, field, value) =>
+        setRoles((prev) => prev.map((r) => (r.key === key ? { ...r, [field]: value } : r)));
+
+      const result = useMemo(() => {
+        const keep = 1 - review / 100;
+        const perRole = roles.map((r) => {
+          const ratio = (r.repetitive / 100) * (r.aiSaving / 100) * keep;
+          const spend = r.headcount * r.cost;
+          return { key: r.key, name: r.name, spend, saving: spend * ratio, hours: r.headcount * HOURS_PER_MONTH * ratio };
+        });
+        const laborSpend = perRole.reduce((s, r) => s + r.spend, 0);
+        const laborSaving = perRole.reduce((s, r) => s + r.saving, 0);
+        const hours = perRole.reduce((s, r) => s + r.hours, 0);
+        const externalSpend = outsource + assets;
+        const outsourceSaving = outsource * (outsourceReplace / 100);
+        const assetsSaving = assets * (assetsReplace / 100);
+        const externalSaving = outsourceSaving + assetsSaving;
+        const gross = laborSaving + externalSaving;
+        const net = gross - aiFee;
+        const totalBudget = laborSpend + externalSpend;
+        return {
+          perRole, laborSpend, laborSaving, hours, fte: hours / HOURS_PER_MONTH,
+          externalSpend, outsourceSaving, assetsSaving, externalSaving,
+          gross, net, firstYear: net * 12 - setup,
+          payback: net > 0 ? setup / net : null,
+          totalBudget, afterAI: totalBudget - gross + aiFee,
+          savingRate: totalBudget > 0 ? (net / totalBudget) * 100 : 0,
+        };
+      }, [roles, outsource, outsourceReplace, assets, assetsReplace, review, aiFee, setup]);
+
+      const breakdown = [
+        ...result.perRole.map((r) => ({ label: r.name, value: r.saving })),
+        { label: "外包費用", value: result.outsourceSaving },
+        { label: "素材 / 翻譯授權", value: result.assetsSaving },
+      ].filter((b) => b.value > 0);
+      const maxBar = Math.max(...breakdown.map((b) => b.value), 1);
+
+      return (
+        <ThemeCtx.Provider value={t}>
+          <div className="min-h-screen p-4 transition-colors sm:p-6"
+            style={{ backgroundColor: t.bgHex, color: t.fgHex, colorScheme: t.scheme }}>
+            <div className="mx-auto max-w-4xl space-y-5">
+              <header className="flex flex-wrap items-start justify-between gap-4">
+                <div className="max-w-2xl">
+                  <h1 className="mb-2 text-2xl font-bold">AI 導入後，行銷與內容設計能精簡多少支出？</h1>
+                  <p className={`text-sm leading-relaxed ${t.muted}`}>
+                    拉動各項參數，估算 AI 在文案、視覺設計、社群與影音製作上可釋放的人力工時，以及可減少的外包與素材費用。
+                  </p>
+                </div>
+                <button onClick={() => setMode(mode === "dark" ? "light" : "dark")}
+                  className={`rounded-lg border px-3 py-2 text-sm transition ${t.btnOff}`}>
+                  {mode === "dark" ? "☀ 日間模式" : "☾ 夜間模式"}
+                </button>
+              </header>
+
+              <div className="flex flex-wrap gap-2">
+                {Object.keys(PRESETS).map((k) => (
+                  <button key={k} onClick={() => applyPreset(k)}
+                    className={`rounded-lg border px-4 py-2 text-sm transition ${preset === k ? t.btnOn : t.btnOff}`}>
+                    {PRESETS[k].label}
+                  </button>
+                ))}
+              </div>
+
+              <Card title="試算結果">
+                <div className="grid grid-cols-2 gap-6 lg:grid-cols-4">
+                  <Stat label="每月可節省（未扣 AI 費用）" value={formatMoney(result.gross)} />
+                  <Stat label="每月淨效益" value={formatMoney(result.net)} tone={result.net >= 0 ? "good" : "bad"}
+                    sub={`約占行銷人力＋外部預算 ${result.savingRate.toFixed(1)}%`} />
+                  <Stat label="第一年淨效益" value={formatMoney(result.firstYear)}
+                    tone={result.firstYear >= 0 ? "good" : "bad"} sub="已扣除一次性導入成本" />
+                  <Stat label="回本時間"
+                    value={result.payback === null ? "無法回本" : `${result.payback.toFixed(1)} 個月`}
+                    tone={result.payback === null ? "bad" : "default"} />
+                </div>
+
+                <div className={`my-6 border-t ${t.divider}`} />
+
+                <div className="mb-5 grid grid-cols-1 gap-3 text-sm sm:grid-cols-3">
+                  <div className={`rounded-lg border px-4 py-3 ${t.inner}`}>
+                    <p className={t.muted}>導入前每月總支出</p>
+                    <p className="mt-1 text-lg font-semibold tabular-nums">{formatMoney(result.totalBudget)}</p>
+                  </div>
+                  <div className={`rounded-lg border px-4 py-3 ${t.inner}`}>
+                    <p className={t.muted}>導入後每月等效支出</p>
+                    <p className="mt-1 text-lg font-semibold tabular-nums">{formatMoney(result.afterAI)}</p>
+                  </div>
+                  <div className={`rounded-lg border px-4 py-3 ${t.inner}`}>
+                    <p className={t.muted}>釋放工時</p>
+                    <p className="mt-1 text-lg font-semibold tabular-nums">
+                      {Math.round(result.hours).toLocaleString()} 小時／月
+                      <span className={`ml-2 text-xs font-normal ${t.faint}`}>≈ {result.fte.toFixed(1)} 人</span>
+                    </p>
+                  </div>
+                </div>
+
+                <p className={`mb-3 text-sm ${t.muted}`}>節省來源拆解（每月）</p>
+                <div className="space-y-2">
+                  {breakdown.map((b) => (
+                    <div key={b.label} className="flex items-center gap-3 text-sm">
+                      <span className={`w-32 shrink-0 truncate sm:w-40 ${t.label}`}>{b.label}</span>
+                      <div className={`h-2 flex-1 overflow-hidden rounded ${t.track}`}>
+                        <div className={`h-full rounded transition-all ${t.bar}`}
+                          style={{ width: `${(b.value / maxBar) * 100}%` }} />
+                      </div>
+                      <span className="w-24 shrink-0 text-right tabular-nums">{formatMoney(b.value)}</span>
+                    </div>
+                  ))}
+                </div>
+              </Card>
+
+              <Card title="① 團隊人力（依職能）" total={formatMoney(result.laborSpend)}>
+                <div className="grid gap-5 md:grid-cols-2">
+                  {roles.map((r) => {
+                    const calc = result.perRole.find((x) => x.key === r.key);
+                    return (
+                      <div key={r.key} className={`space-y-4 rounded-lg border p-4 ${t.inner}`}>
+                        <div>
+                          <p className="font-medium">{r.name}</p>
+                          <p className={`text-xs ${t.faint}`}>{r.hint}</p>
+                        </div>
+                        <Slider label="人數" value={r.headcount} min={0} max={20} step={1}
+                          display={`${r.headcount} 人`} onChange={(v) => updateRole(r.key, "headcount", v)} />
+                        <Slider label="每人每月總成本" value={r.cost} min={1000} max={8000} step={100}
+                          display={formatMoney(r.cost)} onChange={(v) => updateRole(r.key, "cost", v)} />
+                        <Slider label="重複性工作占比" value={r.repetitive} min={0} max={80} step={5}
+                          display={`${r.repetitive}%`} onChange={(v) => updateRole(r.key, "repetitive", v)} />
+                        <Slider label="AI 可節省該部分時間" value={r.aiSaving} min={0} max={90} step={5}
+                          display={`${r.aiSaving}%`} onChange={(v) => updateRole(r.key, "aiSaving", v)} />
+                        <Subtotal rows={[
+                          { label: "每月人力成本小計", value: formatMoney(calc.spend) },
+                          { label: "AI 可節省", value: formatMoney(calc.saving), tone: "good" },
+                        ]} />
+                      </div>
+                    );
+                  })}
+                </div>
+                <Subtotal rows={[
+                  { label: "團隊人力成本合計", value: formatMoney(result.laborSpend) },
+                  { label: "AI 可節省合計", value: formatMoney(result.laborSaving), tone: "good" },
+                ]} />
+              </Card>
+
+              <Card title="② 外部支出" total={formatMoney(result.externalSpend)}>
+                <div className="grid gap-6 md:grid-cols-2">
+                  <div className="space-y-5">
+                    <Slider label="每月外包費用" hint="設計、文案、攝影、翻譯" value={outsource}
+                      min={0} max={30000} step={500} display={formatMoney(outsource)} onChange={setOutsource} />
+                    <Slider label="AI 可取代的外包比例" value={outsourceReplace} min={0} max={80} step={5}
+                      display={`${outsourceReplace}%`} onChange={setOutsourceReplace} />
+                    <Subtotal rows={[
+                      { label: "外包支出小計", value: formatMoney(outsource) },
+                      { label: "AI 可節省", value: formatMoney(result.outsourceSaving), tone: "good" },
+                    ]} />
+                  </div>
+                  <div className="space-y-5">
+                    <Slider label="每月素材 / 圖庫 / 授權費" value={assets} min={0} max={5000} step={100}
+                      display={formatMoney(assets)} onChange={setAssets} />
+                    <Slider label="AI 可取代的素材比例" value={assetsReplace} min={0} max={80} step={5}
+                      display={`${assetsReplace}%`} onChange={setAssetsReplace} />
+                    <Subtotal rows={[
+                      { label: "素材授權支出小計", value: formatMoney(assets) },
+                      { label: "AI 可節省", value: formatMoney(result.assetsSaving), tone: "good" },
+                    ]} />
+                  </div>
+                </div>
+                <Subtotal rows={[
+                  { label: "外部支出合計", value: formatMoney(result.externalSpend) },
+                  { label: "AI 可節省合計", value: formatMoney(result.externalSaving), tone: "good" },
+                ]} />
+              </Card>
+
+              <Card title="③ AI 導入成本與品質把關" total={`${formatMoney(aiFee)}／月`}>
+                <div className="grid gap-6 md:grid-cols-2">
+                  <Slider label="每月 AI 工具 / SaaS 費用" value={aiFee} min={0} max={10000} step={100}
+                    display={formatMoney(aiFee)} onChange={setAiFee} />
+                  <Slider label="一次性導入成本" hint="建置、教育訓練、品牌模板" value={setup}
+                    min={0} max={50000} step={1000} display={formatMoney(setup)} onChange={setSetup} />
+                  <Slider label="AI 產出需人工審核 / 修改的時間" hint="會抵銷部分節省" value={review}
+                    min={0} max={60} step={5} display={`${review}%`} onChange={setReview} />
+                </div>
+                <Subtotal rows={[
+                  { label: "每月 AI 費用", value: formatMoney(aiFee), tone: "bad" },
+                  { label: "第一年 AI 總成本（月費 × 12 ＋ 導入）", value: formatMoney(aiFee * 12 + setup), tone: "bad" },
+                ]} />
+              </Card>
+
+              <p className={`text-xs leading-relaxed ${t.faint}`}>
+                以上為情境假設，不代表實際報價或實測成效。「釋放工時的成本等值」不等於實際現金節省——
+                除非減少人力編制或外包，否則釋放的工時多半會轉為產出更多內容，或投入更高價值的工作。
+                每月工時以 {HOURS_PER_MONTH} 小時計算。
+              </p>
+            </div>
+          </div>
+        </ThemeCtx.Provider>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById("root")).render(<MarketingROI />);
+  </script>
+</body>
+</html>
